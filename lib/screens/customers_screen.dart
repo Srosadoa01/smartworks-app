@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../api/api_client.dart';
 import '../config.dart';
+import '../services/auth_service.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -20,10 +21,27 @@ class _CustomersScreenState extends State<CustomersScreen> {
   late Future<List<dynamic>> future;
   String q = '';
 
+  String? role;
+  bool loadingRole = true;
+
+  bool get isAdmin => role == 'ADMIN';
+
   @override
   void initState() {
     super.initState();
     future = api.getCustomers();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final savedRole = await AuthService().getRole();
+
+    if (!mounted) return;
+
+    setState(() {
+      role = savedRole;
+      loadingRole = false;
+    });
   }
 
   Future<void> refresh() async {
@@ -43,6 +61,15 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }
 
   Future<void> _deleteCustomer(Map<String, dynamic> customer) async {
+    if (!isAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tienes permiso para eliminar clientes.'),
+        ),
+      );
+      return;
+    }
+
     final id = (customer['id'] as num).toInt();
     final name = (customer['name'] ?? 'Cliente').toString();
     final imageUrl = (customer['imageUrl'] ?? '').toString();
@@ -111,7 +138,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
-
                 Row(
                   children: [
                     _CustomerAvatar(
@@ -149,9 +175,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 18),
-
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -179,9 +203,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 18),
-
                 Row(
                   children: [
                     Expanded(
@@ -241,6 +263,15 @@ class _CustomersScreenState extends State<CustomersScreen> {
   }) {
     final isEditing = customer != null;
 
+    if (isEditing && !isAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tienes permiso para editar clientes existentes.'),
+        ),
+      );
+      return Future.value(false);
+    }
+
     final nameCtrl = TextEditingController(
       text: customer?['name']?.toString() ?? '',
     );
@@ -299,7 +330,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
                             borderRadius: BorderRadius.circular(999),
                           ),
                         ),
-
                         Row(
                           children: [
                             _CustomerAvatar(
@@ -339,9 +369,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                             ),
                           ],
                         ),
-
                         const SizedBox(height: 18),
-
                         _PhotoPickerCard(
                           selectedImage: selectedImage,
                           currentImageUrl: currentImageUrl,
@@ -380,9 +408,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                             });
                           },
                         ),
-
                         const SizedBox(height: 16),
-
                         _InputCard(
                           child: Column(
                             children: [
@@ -423,9 +449,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 18),
-
                         Row(
                           children: [
                             Expanded(
@@ -591,6 +615,14 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
+    if (loadingRole) {
+      return const SafeArea(
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return SafeArea(
       child: FutureBuilder<List<dynamic>>(
         future: future,
@@ -605,6 +637,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 150),
               children: [
                 _CustomersHeader(
+                  isAdmin: isAdmin,
                   onRefresh: refresh,
                   onCreate: () async {
                     final created = await _openCustomerSheet();
@@ -614,9 +647,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     }
                   },
                 ),
-
                 const SizedBox(height: 16),
-
                 _SearchBox(
                   onChanged: (v) {
                     setState(() {
@@ -624,9 +655,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     });
                   },
                 ),
-
                 const SizedBox(height: 18),
-
                 if (loading) ...[
                   const _LoadingCard(),
                   const SizedBox(height: 12),
@@ -688,6 +717,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               padding: const EdgeInsets.only(bottom: 12),
                               child: _CustomerCard(
                                 customer: customer,
+                                isAdmin: isAdmin,
                                 onEdit: () async {
                                   final updated = await _openCustomerSheet(
                                     customer: customer,
@@ -718,10 +748,12 @@ class _CustomersScreenState extends State<CustomersScreen> {
 /* ---------------- UI Clientes ---------------- */
 
 class _CustomersHeader extends StatelessWidget {
+  final bool isAdmin;
   final Future<void> Function() onRefresh;
   final VoidCallback onCreate;
 
   const _CustomersHeader({
+    required this.isAdmin,
     required this.onRefresh,
     required this.onCreate,
   });
@@ -765,11 +797,11 @@ class _CustomersHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 13),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Clientes',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -780,12 +812,14 @@ class _CustomersHeader extends StatelessWidget {
                         letterSpacing: -0.4,
                       ),
                     ),
-                    SizedBox(height: 3),
+                    const SizedBox(height: 3),
                     Text(
-                      'Gestión de contactos',
+                      isAdmin
+                          ? 'Gestión completa de contactos'
+                          : 'Registro y consulta de contactos',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Color(0xFFB7C8D8),
                         fontSize: 13.5,
                         fontWeight: FontWeight.w500,
@@ -804,11 +838,11 @@ class _CustomersHeader extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 18),
-
           Text(
-            'Controla la información de tus clientes, actualiza sus datos, sube fotos y elimina contactos cuando sea necesario.',
+            isAdmin
+                ? 'Controla la información de tus clientes, actualiza sus datos, sube fotos y elimina contactos cuando sea necesario.'
+                : 'Consulta clientes y registra nuevos contactos con sus datos y fotografía.',
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -817,9 +851,7 @@ class _CustomersHeader extends StatelessWidget {
               height: 1.35,
             ),
           ),
-
           const SizedBox(height: 18),
-
           SizedBox(
             width: double.infinity,
             height: 52,
@@ -1053,11 +1085,13 @@ class _CustomersSummaryCard extends StatelessWidget {
 
 class _CustomerCard extends StatelessWidget {
   final Map<String, dynamic> customer;
+  final bool isAdmin;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _CustomerCard({
     required this.customer,
+    required this.isAdmin,
     required this.onEdit,
     required this.onDelete,
   });
@@ -1136,50 +1170,57 @@ class _CustomerCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 6),
-          PopupMenuButton<String>(
-            icon: Icon(
-              Icons.more_vert_rounded,
+          if (isAdmin)
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.more_vert_rounded,
+                color: cs.onSurfaceVariant,
+              ),
+              onSelected: (value) {
+                if (value == 'edit') {
+                  onEdit();
+                } else if (value == 'delete') {
+                  onDelete();
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'edit',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_rounded),
+                      SizedBox(width: 10),
+                      Text('Editar'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.delete_rounded,
+                        color: cs.error,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Eliminar',
+                        style: TextStyle(
+                          color: cs.error,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          else
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 18,
               color: cs.onSurfaceVariant,
             ),
-            onSelected: (value) {
-              if (value == 'edit') {
-                onEdit();
-              } else if (value == 'delete') {
-                onDelete();
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_rounded),
-                    SizedBox(width: 10),
-                    Text('Editar'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.delete_rounded,
-                      color: cs.error,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Eliminar',
-                      style: TextStyle(
-                        color: cs.error,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );

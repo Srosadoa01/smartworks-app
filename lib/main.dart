@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'api/api_client.dart';
+import 'services/auth_service.dart';
+
 import 'screens/products_screen.dart';
 import 'screens/orders_screens.dart';
 import 'screens/customers_screen.dart';
 import 'screens/analtytics_screen.dart';
 import 'screens/chatbot_screen.dart';
+import 'screens/auth_screen.dart';
 
 void main() {
   runApp(const SmartWorksApp());
@@ -32,7 +35,7 @@ class SmartWorksApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFFF4F8FC),
       ),
       home: const SplashScreen(
-        duration: Duration(seconds: 5),
+        duration: Duration(seconds: 3),
         background: deepNavy,
       ),
     );
@@ -86,16 +89,41 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     _c.forward();
+    _checkSession();
+  }
 
-    Future.delayed(widget.duration, () {
-      if (!mounted) return;
+  Future<void> _checkSession() async {
+    await Future.delayed(widget.duration);
 
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const HomeShell(),
-        ),
-      );
-    });
+    if (!mounted) return;
+
+    final loggedIn = await AuthService().isLoggedIn();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) {
+          if (loggedIn) {
+            return const HomeShell();
+          }
+
+          return Builder(
+            builder: (authContext) {
+              return AuthScreen(
+                onAuthSuccess: () {
+                  Navigator.of(authContext).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => const HomeShell(),
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -167,11 +195,68 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int index = 0;
+  String? role;
+  bool loadingRole = true;
+
+  bool get isAdmin => role == 'ADMIN';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final savedRole = await AuthService().getRole();
+
+    if (!mounted) return;
+
+    setState(() {
+      role = savedRole;
+      loadingRole = false;
+    });
+  }
+
+  Future<void> _logout() async {
+    await AuthService().logout();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) {
+          return Builder(
+            builder: (authContext) {
+              return AuthScreen(
+                onAuthSuccess: () {
+                  Navigator.of(authContext).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => const HomeShell(),
+                    ),
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+          (route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (loadingRole) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     final pages = [
       DashboardScreen(
+        isAdmin: isAdmin,
         onNavigate: (pageIndex) {
           setState(() {
             index = pageIndex;
@@ -181,10 +266,56 @@ class _HomeShellState extends State<HomeShell> {
       const ProductsScreen(),
       const OrdersScreen(),
       const CustomersScreen(),
-      const AnalyticsScreen(),
+      if (isAdmin) const AnalyticsScreen(),
     ];
 
+    if (index >= pages.length) {
+      index = 0;
+    }
+
     return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            const Text(
+              'SmartWorks',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: isAdmin
+                    ? const Color(0xFFFFF4E5)
+                    : const Color(0xFFEAF6FF),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                isAdmin ? 'ADMIN' : 'USER',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: isAdmin
+                      ? const Color(0xFFFF8A00)
+                      : const Color(0xFF1AA6FF),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            tooltip: 'Cerrar sesión',
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: _logout,
+          ),
+        ],
+      ),
       body: pages[index],
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () {
@@ -206,27 +337,28 @@ class _HomeShellState extends State<HomeShell> {
             index = i;
           });
         },
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.dashboard_rounded),
             label: 'Inicio',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.inventory_2_rounded),
             label: 'Productos',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.receipt_long_rounded),
             label: 'Pedidos',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.people_rounded),
             label: 'Clientes',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.analytics_rounded),
-            label: 'Analizador',
-          ),
+          if (isAdmin)
+            const NavigationDestination(
+              icon: Icon(Icons.analytics_rounded),
+              label: 'Analizador',
+            ),
         ],
       ),
     );
@@ -236,10 +368,12 @@ class _HomeShellState extends State<HomeShell> {
 /* ---------------- Dashboard ---------------- */
 
 class DashboardScreen extends StatefulWidget {
+  final bool isAdmin;
   final void Function(int pageIndex) onNavigate;
 
   const DashboardScreen({
     super.key,
+    required this.isAdmin,
     required this.onNavigate,
   });
 
@@ -276,13 +410,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           final data = snapshot.data ?? <String, dynamic>{};
 
-          final lowStock = loading
-              ? '—'
-              : (data['lowStockProducts'] ?? 0).toString();
+          final lowStock =
+          loading ? '—' : (data['lowStockProducts'] ?? 0).toString();
 
-          final pendingOrders = loading
-              ? '—'
-              : (data['pendingOrders'] ?? 0).toString();
+          final pendingOrders =
+          loading ? '—' : (data['pendingOrders'] ?? 0).toString();
 
           return RefreshIndicator(
             onRefresh: refresh,
@@ -291,6 +423,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 _DashboardHeader(
                   onRefresh: refresh,
+                  isAdmin: widget.isAdmin,
                 ),
 
                 const SizedBox(height: 18),
@@ -307,8 +440,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 if (hasError) ...[
                   const SizedBox(height: 16),
                   _ErrorCard(
-                    message:
-                    'No se pudo cargar el resumen.\n${snapshot.error}',
+                    message: 'No se pudo cargar el resumen.\n${snapshot.error}',
                     onRetry: refresh,
                   ),
                 ],
@@ -324,8 +456,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 _ModuleCard(
                   title: 'Inventario',
-                  subtitle:
-                  'Controla productos, stock disponible y alertas de bajo inventario.',
+                  subtitle: widget.isAdmin
+                      ? 'Controla productos, stock disponible, alertas y gestión completa.'
+                      : 'Consulta productos, stock disponible y alertas de bajo inventario.',
                   icon: Icons.inventory_2_rounded,
                   badge: 'Stock',
                   color: const Color(0xFF1AA6FF),
@@ -337,8 +470,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 _ModuleCard(
                   title: 'Pedidos',
-                  subtitle:
-                  'Revisa pedidos pendientes, completados y cancelados.',
+                  subtitle: widget.isAdmin
+                      ? 'Revisa pedidos y cambia estados de gestión.'
+                      : 'Consulta pedidos y crea nuevos pedidos.',
                   icon: Icons.receipt_long_rounded,
                   badge: 'Ventas',
                   color: const Color(0xFF7C4DFF),
@@ -350,8 +484,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 _ModuleCard(
                   title: 'Clientes',
-                  subtitle:
-                  'Gestiona clientes, datos de contacto y perfiles.',
+                  subtitle: widget.isAdmin
+                      ? 'Gestiona clientes, datos de contacto y perfiles.'
+                      : 'Consulta clientes y registra nuevos contactos.',
                   icon: Icons.people_alt_rounded,
                   badge: 'CRM',
                   color: const Color(0xFF009688),
@@ -359,18 +494,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   onTap: () => widget.onNavigate(3),
                 ),
 
-                const SizedBox(height: 14),
-
-                _ModuleCard(
-                  title: 'Análisis',
-                  subtitle:
-                  'Consulta estadísticas, métricas y gráficos del negocio.',
-                  icon: Icons.query_stats_rounded,
-                  badge: 'Datos',
-                  color: const Color(0xFFFF8A00),
-                  background: const Color(0xFFFFF4E5),
-                  onTap: () => widget.onNavigate(4),
-                ),
+                if (widget.isAdmin) ...[
+                  const SizedBox(height: 14),
+                  _ModuleCard(
+                    title: 'Análisis',
+                    subtitle:
+                    'Consulta estadísticas, métricas, reportes y gráficos del negocio.',
+                    icon: Icons.query_stats_rounded,
+                    badge: 'Admin',
+                    color: const Color(0xFFFF8A00),
+                    background: const Color(0xFFFFF4E5),
+                    onTap: () => widget.onNavigate(4),
+                  ),
+                ],
 
                 const SizedBox(height: 26),
 
@@ -425,7 +561,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                 const SizedBox(height: 26),
 
-                const _SystemResumeCard(),
+                _SystemResumeCard(
+                  isAdmin: widget.isAdmin,
+                ),
               ],
             ),
           );
@@ -439,9 +577,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
 class _DashboardHeader extends StatelessWidget {
   final Future<void> Function() onRefresh;
+  final bool isAdmin;
 
   const _DashboardHeader({
     required this.onRefresh,
+    required this.isAdmin,
   });
 
   @override
@@ -481,11 +621,11 @@ class _DashboardHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 13),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'SmartWorks',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -496,12 +636,14 @@ class _DashboardHeader extends StatelessWidget {
                         letterSpacing: -0.4,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      'Panel empresarial',
+                      isAdmin
+                          ? 'Panel administrador'
+                          : 'Panel usuario',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Color(0xFFB7C8D8),
                         fontSize: 13.5,
                         fontWeight: FontWeight.w500,
@@ -520,9 +662,7 @@ class _DashboardHeader extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 18),
-
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 12,
@@ -535,20 +675,22 @@ class _DashboardHeader extends StatelessWidget {
                 color: const Color(0xFF1AA6FF).withOpacity(0.35),
               ),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
+                const Icon(
                   Icons.verified_rounded,
                   color: Color(0xFF5CC6FF),
                   size: 17,
                 ),
-                SizedBox(width: 6),
+                const SizedBox(width: 6),
                 Text(
-                  'Sistema conectado',
+                  isAdmin
+                      ? 'Sistema conectado · Acceso total'
+                      : 'Sistema conectado · Acceso limitado',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -557,14 +699,14 @@ class _DashboardHeader extends StatelessWidget {
               ],
             ),
           ),
-
           const SizedBox(height: 16),
-
-          const Text(
-            'Control total de tu negocio',
+          Text(
+            isAdmin
+                ? 'Control total de tu negocio'
+                : 'Consulta y gestión básica',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 26,
               height: 1.1,
@@ -572,11 +714,11 @@ class _DashboardHeader extends StatelessWidget {
               letterSpacing: -0.6,
             ),
           ),
-
           const SizedBox(height: 10),
-
           Text(
-            'Gestiona inventario, pedidos, clientes y análisis desde una interfaz rápida y profesional.',
+            isAdmin
+                ? 'Gestiona inventario, pedidos, clientes, análisis y reportes desde una interfaz rápida y profesional.'
+                : 'Consulta productos, clientes, pedidos y usa el asistente virtual de SmartWorks.',
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -657,9 +799,7 @@ class _StatusOverviewCard extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 14),
-
           Container(
             padding: const EdgeInsets.all(13),
             decoration: BoxDecoration(
@@ -767,9 +907,7 @@ class _MetricCard extends StatelessWidget {
                 size: 24,
               ),
             ),
-
             const SizedBox(height: 14),
-
             Text(
               value,
               maxLines: 1,
@@ -781,9 +919,7 @@ class _MetricCard extends StatelessWidget {
                 letterSpacing: -0.6,
               ),
             ),
-
             const SizedBox(height: 3),
-
             Text(
               title,
               maxLines: 1,
@@ -794,9 +930,7 @@ class _MetricCard extends StatelessWidget {
                 color: cs.onSurface,
               ),
             ),
-
             const SizedBox(height: 3),
-
             Text(
               subtitle,
               maxLines: 2,
@@ -1050,7 +1184,11 @@ class _ToolCard extends StatelessWidget {
 }
 
 class _SystemResumeCard extends StatelessWidget {
-  const _SystemResumeCard();
+  final bool isAdmin;
+
+  const _SystemResumeCard({
+    required this.isAdmin,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1065,31 +1203,33 @@ class _SystemResumeCard extends StatelessWidget {
           color: cs.outlineVariant.withOpacity(0.45),
         ),
       ),
-      child: const Column(
+      child: Column(
         children: [
-          _SystemLine(
+          const _SystemLine(
             icon: Icons.api_rounded,
             title: 'API Spring Boot',
             subtitle:
             'Backend preparado para productos, pedidos, clientes y chatbot.',
             color: Color(0xFF1AA6FF),
           ),
-          Divider(height: 24),
-          _SystemLine(
+          const Divider(height: 24),
+          const _SystemLine(
             icon: Icons.storage_rounded,
-            title: 'Base de datos MySQL',
+            title: 'Base de datos Supabase',
             subtitle:
             'Información centralizada para la gestión del negocio.',
             color: Color(0xFF009688),
           ),
-          Divider(height: 24),
-          _SystemLine(
-            icon: Icons.analytics_rounded,
-            title: 'Análisis empresarial',
-            subtitle:
-            'Próximo paso: gráficos visuales para la exposición del TFG.',
-            color: Color(0xFFFF8A00),
-          ),
+          if (isAdmin) ...[
+            const Divider(height: 24),
+            const _SystemLine(
+              icon: Icons.analytics_rounded,
+              title: 'Análisis empresarial',
+              subtitle:
+              'Métricas, estadísticas y reportes para la exposición del TFG.',
+              color: Color(0xFFFF8A00),
+            ),
+          ],
         ],
       ),
     );

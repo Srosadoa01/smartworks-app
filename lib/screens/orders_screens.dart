@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../config.dart';
 import '../data/product_images.dart';
+import '../services/auth_service.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -17,10 +18,27 @@ class _OrdersScreenState extends State<OrdersScreen> {
   late Future<List<dynamic>> future;
   String q = '';
 
+  String? role;
+  bool loadingRole = true;
+
+  bool get isAdmin => role == 'ADMIN';
+
   @override
   void initState() {
     super.initState();
     future = api.getOrders();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final savedRole = await AuthService().getRole();
+
+    if (!mounted) return;
+
+    setState(() {
+      role = savedRole;
+      loadingRole = false;
+    });
   }
 
   Future<void> refresh() async {
@@ -72,6 +90,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         builder: (_) => OrderDetailsScreen(
           order: order,
           api: api,
+          isAdmin: isAdmin,
         ),
       ),
     );
@@ -84,6 +103,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+
+    if (loadingRole) {
+      return const SafeArea(
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
 
     return SafeArea(
       child: FutureBuilder<List<dynamic>>(
@@ -99,6 +126,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 150),
               children: [
                 _OrdersHeader(
+                  isAdmin: isAdmin,
                   onRefresh: refresh,
                   onCreate: _openCreateOrderSheet,
                 ),
@@ -638,11 +666,13 @@ class _OrderLineDraft {
 class OrderDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> order;
   final ApiClient api;
+  final bool isAdmin;
 
   const OrderDetailsScreen({
     super.key,
     required this.order,
     required this.api,
+    required this.isAdmin,
   });
 
   @override
@@ -660,6 +690,15 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   }
 
   Future<void> _changeStatus(String status) async {
+    if (!widget.isAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tienes permiso para cambiar el estado del pedido.'),
+        ),
+      );
+      return;
+    }
+
     final id = (order['id'] as num).toInt();
 
     setState(() {
@@ -761,16 +800,21 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
 
             const _SectionHeader(
               title: 'Estado del pedido',
-              subtitle: 'Actualiza el estado de la operación',
+              subtitle: 'Seguimiento de la operación',
             ),
 
             const SizedBox(height: 12),
 
-            _StatusActionsCard(
-              currentStatus: status,
-              saving: saving,
-              onChange: _changeStatus,
-            ),
+            if (widget.isAdmin)
+              _StatusActionsCard(
+                currentStatus: status,
+                saving: saving,
+                onChange: _changeStatus,
+              )
+            else
+              _UserStatusInfoCard(
+                currentStatus: status,
+              ),
           ],
         ),
       ),
@@ -911,10 +955,12 @@ class _SelectProductSheetState extends State<_SelectProductSheet> {
 /* ---------------- UI Principal ---------------- */
 
 class _OrdersHeader extends StatelessWidget {
+  final bool isAdmin;
   final Future<void> Function() onRefresh;
   final VoidCallback onCreate;
 
   const _OrdersHeader({
+    required this.isAdmin,
     required this.onRefresh,
     required this.onCreate,
   });
@@ -958,11 +1004,11 @@ class _OrdersHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 13),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Pedidos',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -973,9 +1019,11 @@ class _OrdersHeader extends StatelessWidget {
                         letterSpacing: -0.4,
                       ),
                     ),
-                    SizedBox(height: 3),
+                    const SizedBox(height: 3),
                     Text(
-                      'Operaciones de venta',
+                      isAdmin
+                          ? 'Gestión de operaciones'
+                          : 'Registro de operaciones',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -1001,7 +1049,9 @@ class _OrdersHeader extends StatelessWidget {
           const SizedBox(height: 18),
 
           Text(
-            'Crea pedidos, selecciona clientes, añade productos y controla el estado de cada operación.',
+            isAdmin
+                ? 'Crea pedidos, selecciona clientes, añade productos y controla el estado de cada operación.'
+                : 'Crea pedidos, selecciona clientes y consulta el estado de cada operación.',
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -2012,6 +2062,71 @@ class _OrderTotalCard extends StatelessWidget {
                 fontWeight: FontWeight.w900,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class _UserStatusInfoCard extends StatelessWidget {
+  final String currentStatus;
+
+  const _UserStatusInfoCard({
+    required this.currentStatus,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _statusData(currentStatus);
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: cs.outlineVariant.withOpacity(0.45),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            data.icon,
+            color: data.color,
+            size: 30,
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  data.label,
+                  style: TextStyle(
+                    color: data.color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Solo un administrador puede cambiar el estado del pedido.',
+                  style: TextStyle(
+                    color: cs.onSurfaceVariant,
+                    fontSize: 12.5,
+                    height: 1.25,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.lock_outline_rounded,
+            color: cs.onSurfaceVariant,
           ),
         ],
       ),

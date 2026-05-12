@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../api/api_client.dart';
 import '../config.dart';
 import '../data/product_images.dart';
+import '../services/auth_service.dart';
 import 'product_details_screen.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -21,12 +22,29 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   bool lowStockOnly = false;
   String q = '';
+  String? role;
+  bool loadingRole = true;
+
   late Future<List<dynamic>> future;
+
+  bool get isAdmin => role == 'ADMIN';
 
   @override
   void initState() {
     super.initState();
     future = api.getProducts(lowStockOnly: lowStockOnly);
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final savedRole = await AuthService().getRole();
+
+    if (!mounted) return;
+
+    setState(() {
+      role = savedRole;
+      loadingRole = false;
+    });
   }
 
   Future<void> refresh() async {
@@ -53,6 +71,15 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Future<void> _deleteProduct(Map<String, dynamic> product) async {
+    if (!isAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tienes permiso para eliminar productos.'),
+        ),
+      );
+      return;
+    }
+
     final id = (product['id'] as num).toInt();
     final name = (product['name'] ?? 'Producto').toString();
     final imageUrl = (product['imageUrl'] ?? '').toString();
@@ -121,7 +148,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
-
                 Row(
                   children: [
                     _ProductImage(
@@ -159,9 +185,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 18),
-
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -189,9 +213,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 18),
-
                 Row(
                   children: [
                     Expanded(
@@ -249,6 +271,15 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Future<void> _openProductSheet({
     Map<String, dynamic>? product,
   }) async {
+    if (!isAdmin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tienes permiso para modificar productos.'),
+        ),
+      );
+      return;
+    }
+
     final isEditing = product != null;
 
     final int? productId = isEditing ? (product['id'] as num).toInt() : null;
@@ -289,9 +320,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
             final cs = Theme.of(context).colorScheme;
             final bottom = MediaQuery.of(context).viewInsets.bottom;
 
-            final previewName = nameCtrl.text.trim().isEmpty
-                ? 'Producto'
-                : nameCtrl.text.trim();
+            final previewName =
+            nameCtrl.text.trim().isEmpty ? 'Producto' : nameCtrl.text.trim();
 
             final currentImageUrl =
             (product?['imageUrl'] ?? '').toString().trim();
@@ -321,7 +351,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             borderRadius: BorderRadius.circular(999),
                           ),
                         ),
-
                         Row(
                           children: [
                             _ProductImage(
@@ -363,9 +392,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             ),
                           ],
                         ),
-
                         const SizedBox(height: 18),
-
                         _PhotoPickerCard(
                           selectedImage: selectedImage,
                           currentImageUrl: currentImageUrl,
@@ -404,9 +431,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             });
                           },
                         ),
-
                         const SizedBox(height: 16),
-
                         _InputCard(
                           child: Column(
                             children: [
@@ -464,9 +489,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             ],
                           ),
                         ),
-
                         const SizedBox(height: 18),
-
                         Row(
                           children: [
                             Expanded(
@@ -687,6 +710,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
+    if (loadingRole) {
+      return const SafeArea(
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return SafeArea(
       child: FutureBuilder<List<dynamic>>(
         future: future,
@@ -701,14 +732,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 150),
               children: [
                 _ProductsHeader(
+                  isAdmin: isAdmin,
                   onRefresh: refresh,
                   onCreate: () async {
                     await _openProductSheet();
                   },
                 ),
-
                 const SizedBox(height: 16),
-
                 _SearchBox(
                   hintText: 'Buscar producto...',
                   onChanged: (value) {
@@ -717,17 +747,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     });
                   },
                 ),
-
                 const SizedBox(height: 14),
-
                 _FiltersCard(
                   lowStockOnly: lowStockOnly,
                   onAll: () => toggleLowStock(false),
                   onLowStock: () => toggleLowStock(true),
                 ),
-
                 const SizedBox(height: 18),
-
                 if (loading) ...[
                   const _LoadingCard(),
                   const SizedBox(height: 12),
@@ -756,7 +782,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       }).toList();
 
                       if (filtered.isEmpty) {
-                        return const _EmptyProductsCard();
+                        return _EmptyProductsCard(
+                          isAdmin: isAdmin,
+                        );
                       }
 
                       final lowCount = items.where((item) {
@@ -784,6 +812,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                               padding: const EdgeInsets.only(bottom: 12),
                               child: _ProductCard(
                                 product: product,
+                                isAdmin: isAdmin,
                                 onEdit: () => _openProductSheet(
                                   product: product,
                                 ),
@@ -808,10 +837,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
 /* ---------------- UI Productos ---------------- */
 
 class _ProductsHeader extends StatelessWidget {
+  final bool isAdmin;
   final Future<void> Function() onRefresh;
   final VoidCallback onCreate;
 
   const _ProductsHeader({
+    required this.isAdmin,
     required this.onRefresh,
     required this.onCreate,
   });
@@ -855,11 +886,11 @@ class _ProductsHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 13),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       'Productos',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -870,12 +901,12 @@ class _ProductsHeader extends StatelessWidget {
                         letterSpacing: -0.4,
                       ),
                     ),
-                    SizedBox(height: 3),
+                    const SizedBox(height: 3),
                     Text(
-                      'Inventario y stock',
+                      isAdmin ? 'Gestión de inventario' : 'Consulta de stock',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Color(0xFFB7C8D8),
                         fontSize: 13.5,
                         fontWeight: FontWeight.w500,
@@ -894,11 +925,11 @@ class _ProductsHeader extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 18),
-
           Text(
-            'Añade nuevos productos, edita nombres, cambia stock, precios y elimina productos si ya no forman parte del inventario.',
+            isAdmin
+                ? 'Añade nuevos productos, edita nombres, cambia stock, precios y elimina productos si ya no forman parte del inventario.'
+                : 'Consulta los productos disponibles, revisa el stock y detecta productos con bajo inventario.',
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
@@ -907,30 +938,30 @@ class _ProductsHeader extends StatelessWidget {
               height: 1.35,
             ),
           ),
-
-          const SizedBox(height: 18),
-
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: FilledButton.icon(
-              onPressed: onCreate,
-              style: FilledButton.styleFrom(
-                backgroundColor: cs.primary,
-                foregroundColor: cs.onPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+          if (isAdmin) ...[
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: onCreate,
+                style: FilledButton.styleFrom(
+                  backgroundColor: cs.primary,
+                  foregroundColor: cs.onPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
                 ),
-              ),
-              icon: const Icon(Icons.add_box_rounded),
-              label: const Text(
-                'Añadir nuevo producto',
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
+                icon: const Icon(Icons.add_box_rounded),
+                label: const Text(
+                  'Añadir nuevo producto',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1251,11 +1282,13 @@ class _ProductsSummaryCard extends StatelessWidget {
 
 class _ProductCard extends StatelessWidget {
   final Map<String, dynamic> product;
+  final bool isAdmin;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _ProductCard({
     required this.product,
+    required this.isAdmin,
     required this.onEdit,
     required this.onDelete,
   });
@@ -1371,50 +1404,57 @@ class _ProductCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
-            PopupMenuButton<String>(
-              icon: Icon(
-                Icons.more_vert_rounded,
+            if (isAdmin)
+              PopupMenuButton<String>(
+                icon: Icon(
+                  Icons.more_vert_rounded,
+                  color: cs.onSurfaceVariant,
+                ),
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    onEdit();
+                  } else if (value == 'delete') {
+                    onDelete();
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_rounded),
+                        SizedBox(width: 10),
+                        Text('Editar'),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.delete_rounded,
+                          color: cs.error,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'Eliminar',
+                          style: TextStyle(
+                            color: cs.error,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            else
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 16,
                 color: cs.onSurfaceVariant,
               ),
-              onSelected: (value) {
-                if (value == 'edit') {
-                  onEdit();
-                } else if (value == 'delete') {
-                  onDelete();
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: 'edit',
-                  child: Row(
-                    children: [
-                      Icon(Icons.edit_rounded),
-                      SizedBox(width: 10),
-                      Text('Editar'),
-                    ],
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'delete',
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.delete_rounded,
-                        color: cs.error,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Eliminar',
-                        style: TextStyle(
-                          color: cs.error,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),
@@ -1607,7 +1647,11 @@ class _InputCard extends StatelessWidget {
 }
 
 class _EmptyProductsCard extends StatelessWidget {
-  const _EmptyProductsCard();
+  final bool isAdmin;
+
+  const _EmptyProductsCard({
+    required this.isAdmin,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1640,7 +1684,9 @@ class _EmptyProductsCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Prueba con otra búsqueda, cambia el filtro o añade un producto nuevo.',
+            isAdmin
+                ? 'Prueba con otra búsqueda, cambia el filtro o añade un producto nuevo.'
+                : 'Prueba con otra búsqueda o cambia el filtro.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: cs.onSurfaceVariant,
