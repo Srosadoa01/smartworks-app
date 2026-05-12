@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../config.dart';
+import '../services/auth_service.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -15,9 +16,33 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
+  final AuthService _authService = AuthService();
+
+  Future<Map<String, String>> _headers({
+    bool json = false,
+  }) async {
+    final token = await _authService.getToken();
+
+    final headers = <String, String>{};
+
+    if (json) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+
+    return headers;
+  }
+
   Future<Map<String, dynamic>> getDashboard() async {
     final uri = Uri.parse('$baseUrl/dashboard');
-    final res = await http.get(uri);
+
+    final res = await http.get(
+      uri,
+      headers: await _headers(),
+    );
 
     return _decodeMapResponse(
       res,
@@ -30,7 +55,10 @@ class ApiClient {
       lowStockOnly ? '$baseUrl/products/low-stock' : '$baseUrl/products',
     );
 
-    final res = await http.get(uri);
+    final res = await http.get(
+      uri,
+      headers: await _headers(),
+    );
 
     return _decodeListResponse(
       res,
@@ -49,7 +77,7 @@ class ApiClient {
 
     final res = await http.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headers(json: true),
       body: jsonEncode({
         'name': name.trim(),
         'stock': stock,
@@ -87,7 +115,7 @@ class ApiClient {
 
     final res = await http.patch(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headers(json: true),
       body: jsonEncode(body),
     );
 
@@ -100,7 +128,10 @@ class ApiClient {
   Future<void> deleteProduct(int id) async {
     final uri = Uri.parse('$baseUrl/products/$id');
 
-    final res = await http.delete(uri);
+    final res = await http.delete(
+      uri,
+      headers: await _headers(),
+    );
 
     _checkVoidResponse(
       res,
@@ -115,6 +146,12 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/products/$id/photo');
 
     final request = http.MultipartRequest('PATCH', uri);
+
+    final token = await _authService.getToken();
+
+    if (token != null && token.isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
 
     request.files.add(
       await http.MultipartFile.fromPath(
@@ -135,7 +172,10 @@ class ApiClient {
   Future<List<dynamic>> getOrders() async {
     final uri = Uri.parse('$baseUrl/orders');
 
-    final res = await http.get(uri);
+    final res = await http.get(
+      uri,
+      headers: await _headers(),
+    );
 
     return _decodeListResponse(
       res,
@@ -151,7 +191,7 @@ class ApiClient {
 
     final res = await http.patch(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headers(json: true),
       body: jsonEncode({'status': status}),
     );
 
@@ -164,7 +204,10 @@ class ApiClient {
   Future<List<dynamic>> getCustomers() async {
     final uri = Uri.parse('$baseUrl/customers');
 
-    final res = await http.get(uri);
+    final res = await http.get(
+      uri,
+      headers: await _headers(),
+    );
 
     return _decodeListResponse(
       res,
@@ -182,7 +225,7 @@ class ApiClient {
 
     final res = await http.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headers(json: true),
       body: jsonEncode({
         'name': name.trim(),
         'email': (email ?? '').trim(),
@@ -208,7 +251,7 @@ class ApiClient {
 
     final res = await http.patch(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headers(json: true),
       body: jsonEncode({
         'name': name.trim(),
         'email': (email ?? '').trim(),
@@ -226,7 +269,10 @@ class ApiClient {
   Future<void> deleteCustomer(int id) async {
     final uri = Uri.parse('$baseUrl/customers/$id');
 
-    final res = await http.delete(uri);
+    final res = await http.delete(
+      uri,
+      headers: await _headers(),
+    );
 
     _checkVoidResponse(
       res,
@@ -241,6 +287,12 @@ class ApiClient {
     final uri = Uri.parse('$baseUrl/customers/$id/photo');
 
     final request = http.MultipartRequest('PATCH', uri);
+
+    final token = await _authService.getToken();
+
+    if (token != null && token.isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
 
     request.files.add(
       await http.MultipartFile.fromPath(
@@ -266,7 +318,7 @@ class ApiClient {
 
     final res = await http.post(
       uri,
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headers(json: true),
       body: jsonEncode({
         'customerId': customerId,
         'lines': lines,
@@ -292,7 +344,10 @@ class ApiClient {
       queryParameters: q.isEmpty ? null : q,
     );
 
-    final res = await http.get(uri);
+    final res = await http.get(
+      uri,
+      headers: await _headers(),
+    );
 
     return _decodeMapResponse(
       res,
@@ -313,7 +368,10 @@ class ApiClient {
       queryParameters: q.isEmpty ? null : q,
     );
 
-    final res = await http.post(uri);
+    final res = await http.post(
+      uri,
+      headers: await _headers(),
+    );
 
     return _decodeMapResponse(
       res,
@@ -390,6 +448,14 @@ class ApiClient {
         required String defaultMessage,
       }) {
     final rawMessage = _extractApiMessage(res.body);
+
+    if (res.statusCode == 401) {
+      return 'Tu sesión ha caducado o no has iniciado sesión.';
+    }
+
+    if (res.statusCode == 403) {
+      return 'No tienes permiso para realizar esta acción.';
+    }
 
     if (res.statusCode == 409) {
       return _translateConflict(rawMessage);
